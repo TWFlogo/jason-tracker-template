@@ -9,8 +9,8 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Life Tracker">
-<link id="manifest-link" rel="manifest">
-<link id="apple-icon-link" rel="apple-touch-icon">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>Jason Wyles — Life Tracker</title>
 <style>
 :root{
@@ -261,23 +261,27 @@ body.signed-in #login-overlay{display:none;}
 <div id="login-overlay">
   <div class="login-card">
     <div class="lg">Life Tracker</div>
-    <div class="lgs">Personal OS</div>
-    <div class="login-sub" id="login-sub">Choose your account, or create a new one.</div>
-    <div id="login-existing" style="display:none">
-      <div class="user-list" id="login-user-list"></div>
-      <div class="login-divider">or create a new account</div>
+    <div class="lgs">Personal OS · Cloud</div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+      <button class="btn btn-o" onclick="authGoogle()" style="justify-content:center">Continue with Google</button>
+      <button class="btn btn-o" onclick="authApple()" style="justify-content:center">Continue with Apple</button>
     </div>
+    <div class="login-divider">or use email</div>
     <div class="login-field">
-      <label id="login-name-label">Your name</label>
-      <input id="login-name" type="text" autocomplete="username" placeholder="e.g. Jason" onkeydown="if(event.key==='Enter')loginPrimary()">
+      <label>Email</label>
+      <input id="login-email" type="email" autocomplete="email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')authPrimary()">
     </div>
-    <div class="login-field">
-      <label>Password <span class="tmu">(optional)</span></label>
-      <input id="login-pass" type="password" autocomplete="current-password" placeholder="Leave blank for none" onkeydown="if(event.key==='Enter')loginPrimary()">
+    <div class="login-field" id="login-passwrap">
+      <label>Password</label>
+      <input id="login-pass" type="password" autocomplete="current-password" placeholder="••••••••" onkeydown="if(event.key==='Enter')authPrimary()">
     </div>
     <div class="login-err" id="login-err"></div>
-    <button class="btn" id="login-btn" style="width:100%" onclick="loginPrimary()">Create account</button>
-    <div style="text-align:center;margin-top:10px"><button class="link-btn" id="login-newmode" style="display:none" onclick="loginNewMode()">← Create a different account</button></div>
+    <div id="login-ok" style="color:var(--accent2);font-size:.8rem;margin-bottom:8px"></div>
+    <button class="btn" id="login-btn" style="width:100%" onclick="authPrimary()">Sign in</button>
+    <div style="display:flex;justify-content:space-between;margin-top:12px">
+      <button class="link-btn" id="auth-signup" onclick="authToggleSignup()">Create account</button>
+      <button class="link-btn" id="auth-reset" onclick="authReset()">Forgot password?</button>
+    </div>
   </div>
 </div>
 
@@ -286,16 +290,9 @@ body.signed-in #login-overlay{display:none;}
   <div class="modal">
     <h3>☁️ Sync &amp; backup</h3>
     <div class="mh-sub">Keep this account identical on every device.</div>
-    <div id="sync-status-box" class="sync-status">Local only — saved on this device.</div>
-    <div class="ct" style="margin-top:6px">Real-time cloud sync (Firebase)</div>
-    <p class="tmu" style="font-size:.8rem;margin:4px 0 8px;line-height:1.55">Create a free Firebase project, paste its web config below, and press Connect. After that, anything you change appears on your phone, tablet and PC automatically.</p>
-    <textarea id="fb-config" placeholder='{ "apiKey": "…", "authDomain": "…", "projectId": "…", "appId": "…" }' style="min-height:118px;font-family:monospace;font-size:.78rem"></textarea>
-    <div class="flex aic mt8" style="gap:8px;flex-wrap:wrap">
-      <button class="btn btn-sm" onclick="cloudSaveAndConnect()">Connect</button>
-      <button class="btn btn-sm btn-r" onclick="cloudDisconnect()">Disconnect</button>
-      <a class="link-btn" href="https://console.firebase.google.com/" target="_blank" rel="noopener">Open Firebase →</a>
-    </div>
-    <div class="login-divider">no setup needed</div>
+    <div id="sync-status-box" class="sync-status">Cloud sync is on.</div>
+    <p class="tmu" style="font-size:.8rem;margin:4px 0 8px;line-height:1.55">Your account is synced automatically. Anything you change appears on every device signed into this account, in real time. The manual backup below is optional.</p>
+    <div class="login-divider">optional</div>
     <div class="ct">Manual backup (works offline)</div>
     <div class="flex aic mt8" style="gap:8px;flex-wrap:wrap">
       <button class="btn btn-sm btn-g" onclick="exportData()">⬇ Export backup</button>
@@ -683,6 +680,20 @@ body.signed-in #login-overlay{display:none;}
 <script>
 'use strict';
 // ═══════════════════════════════════════════════════════════════
+// FIREBASE CONFIG (public by design — protected by Auth + security rules)
+// ═══════════════════════════════════════════════════════════════
+const firebaseConfig = {
+  apiKey: "AIzaSyBUzepG4spuUOfvsLJM0DTvM6wnKglY3YE",
+  authDomain: "jason-tracker-86db8.firebaseapp.com",
+  databaseURL: "https://jason-tracker-86db8-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "jason-tracker-86db8",
+  storageBucket: "jason-tracker-86db8.firebasestorage.app",
+  messagingSenderId: "1005535571965",
+  appId: "1:1005535571965:web:a654bb737ef4a3294f7394",
+  measurementId: "G-RHR50RW5GK",
+};
+let AUTH_USER = null;   // the signed-in Firebase user
+// ═══════════════════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════════════════
 const $ = id => document.getElementById(id);
@@ -696,7 +707,7 @@ const REG = {
   session(){ return localStorage.getItem('jw_session')||''; },
   setSession(id){ try{ if(id) localStorage.setItem('jw_session', id); else localStorage.removeItem('jw_session'); }catch(e){} }
 };
-let CURRENT_USER = REG.session();
+let CURRENT_USER = null;   // = Firebase uid once signed in
 let CURRENT_PAGE = 'dashboard';
 function userPfx(){ return 'jwu_'+(CURRENT_USER||'guest')+'__'; }
 
@@ -748,97 +759,60 @@ function migrateLegacy(toUserId){
   return moved;
 }
 
-let loginSel=null; // currently selected existing account id (sign-in mode)
-
-function renderLogin(){
-  const accs=REG.accounts();
-  const hasAccs=accs.length>0;
-  $('login-existing').style.display=hasAccs?'block':'none';
-  if(hasAccs){
-    $('login-user-list').innerHTML=accs.map(a=>`
-      <button class="user-chip${loginSel===a.id?' sel':''}" onclick="loginSelect('${a.id}')">
-        <span class="av">${esc(initials(a.name))}</span>
-        <span class="nm">${esc(a.name)}</span>
-        ${a.hasPass?'<span class="lk">🔒</span>':''}
-      </button>`).join('');
-  }
-  if(loginSel){
-    const a=accs.find(x=>x.id===loginSel);
-    $('login-sub').textContent='Welcome back.';
-    $('login-title')&&($('login-title').textContent='Sign in');
-    $('login-name-label').textContent='Account';
-    $('login-name').value=a?a.name:'';
-    $('login-name').setAttribute('readonly','readonly');
-    $('login-pass').placeholder=a&&a.hasPass?'Enter your password':'No password — just sign in';
-    $('login-pass').value='';
-    $('login-btn').textContent='Sign in';
-    $('login-newmode').style.display='inline-block';
-  } else {
-    $('login-sub').textContent=hasAccs?'Choose your account, or create a new one.':'Create your account to get started.';
-    $('login-name-label').textContent='Your name';
-    $('login-name').removeAttribute('readonly');
-    $('login-name').value='';
-    $('login-pass').placeholder='Leave blank for none';
-    $('login-pass').value='';
-    $('login-btn').textContent='Create account';
-    $('login-newmode').style.display='none';
-  }
-  $('login-err').textContent='';
+// ── Firebase auth UI handlers ──────────────────────────────────
+let authMode='signin'; // signin | signup | reset
+function renderAuthMode(){
+  const pw=$('login-passwrap'); if(pw) pw.style.display = authMode==='reset'?'none':'block';
+  $('login-btn').textContent = authMode==='signup'?'Create account':(authMode==='reset'?'Send reset link':'Sign in');
+  $('auth-signup').textContent = authMode==='signup'?'← Back to sign in':'Create account';
+  $('auth-reset').textContent = authMode==='reset'?'← Back to sign in':'Forgot password?';
+  $('login-err').textContent=''; $('login-ok').textContent='';
+}
+function authToggleSignup(){ authMode = authMode==='signup'?'signin':'signup'; renderAuthMode(); }
+function authReset(){ authMode = authMode==='reset'?'signin':'reset'; renderAuthMode(); }
+async function authGoogle(){ try{ await ensureFirebase(); await firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider()); }catch(e){ $('login-err').textContent=friendlyAuth(e); } }
+async function authApple(){ try{ await ensureFirebase(); const p=new firebase.auth.OAuthProvider('apple.com'); p.addScope('email'); p.addScope('name'); await firebase.auth().signInWithPopup(p); }catch(e){ $('login-err').textContent=friendlyAuth(e); } }
+async function authPrimary(){
+  const email=($('login-email').value||'').trim(), pass=$('login-pass').value;
+  $('login-err').textContent=''; $('login-ok').textContent='';
+  try{
+    await ensureFirebase();
+    if(authMode==='reset'){ if(!email){ $('login-err').textContent='Enter your email first.'; return; } await firebase.auth().sendPasswordResetEmail(email); $('login-ok').textContent='Reset link sent — check your inbox.'; authMode='signin'; renderAuthMode(); }
+    else if(authMode==='signup'){ await firebase.auth().createUserWithEmailAndPassword(email,pass); }
+    else { await firebase.auth().signInWithEmailAndPassword(email,pass); }
+  }catch(e){ $('login-err').textContent=friendlyAuth(e); }
+}
+function friendlyAuth(e){ const c=(e&&e.code)||'';
+  if(c.includes('invalid-credential')||c.includes('wrong-password')||c.includes('user-not-found')) return 'Incorrect email or password.';
+  if(c.includes('email-already-in-use')) return 'That email already has an account — sign in instead.';
+  if(c.includes('weak-password')) return 'Password should be at least 6 characters.';
+  if(c.includes('invalid-email')) return 'That email address looks invalid.';
+  if(c.includes('popup-closed')||c.includes('cancelled-popup')) return 'Sign-in was cancelled.';
+  if(c.includes('operation-not-allowed')) return "That sign-in method isn't enabled in Firebase yet.";
+  if(c.includes('unauthorized-domain')) return 'This web address is not authorised in Firebase → Authentication → Settings → Authorized domains.';
+  return (e&&e.message)||'Something went wrong.';
 }
 
-function loginSelect(id){ loginSel=id; renderLogin(); setTimeout(()=>$('login-pass').focus(),30); }
-function loginNewMode(){ loginSel=null; renderLogin(); setTimeout(()=>$('login-name').focus(),30); }
-
-function loginPrimary(){
-  const accs=REG.accounts();
-  const errEl=$('login-err');
-  if(loginSel){
-    // SIGN IN
-    const a=accs.find(x=>x.id===loginSel); if(!a){ loginSel=null; renderLogin(); return; }
-    const pass=$('login-pass').value;
-    if(a.hasPass && hash(pass)!==a.pass){ errEl.textContent='Incorrect password.'; return; }
-    signInUser(a.id);
-  } else {
-    // CREATE
-    const name=$('login-name').value.trim();
-    if(!name){ errEl.textContent='Please enter a name.'; return; }
-    if(accs.some(x=>x.name.toLowerCase()===name.toLowerCase())){ errEl.textContent='That name already exists — pick it above to sign in.'; return; }
-    const pass=$('login-pass').value;
-    const id=hash(name.toLowerCase()+'_'+Date.now());
-    const acc={id,name,hasPass:!!pass,pass:pass?hash(pass):null,created:Date.now()};
-    accs.push(acc); REG.save(accs);
-    if(accs.length===1) migrateLegacy(id); // fold legacy data into the very first account
-    signInUser(id);
-  }
-}
-
-function signInUser(id){
-  CURRENT_USER=id;
-  REG.setSession(id);
+// Called by onAuthStateChanged when a user signs in.
+async function signInUser(user){
+  AUTH_USER=user; CURRENT_USER=user.uid;
   document.body.classList.add('signed-in');
   $('login-overlay').style.display='none';
+  await cloudConnectForUser();   // pull this account's cloud data BEFORE seeding defaults
   bootForUser();
 }
 
-function logout(){
-  if(cloudReady) cloudDisconnect();
-  REG.setSession(null);
-  CURRENT_USER=null;
+// Sign-out button → Firebase signOut; the auth listener resets the UI.
+function logout(){ try{ if(window.firebase && firebase.auth) firebase.auth().signOut(); }catch(e){} }
+
+// Called by onAuthStateChanged when signed out.
+function showLoggedOut(){
+  if(fbUnsub){ try{fbUnsub();}catch(e){} fbUnsub=null; }
+  cloudReady=false; fbDb=null; AUTH_USER=null; CURRENT_USER=null;
   document.body.classList.remove('signed-in');
   document.body.classList.remove('nav-open');
-  loginSel=null;
   $('login-overlay').style.display='flex';
-  renderLogin();
-}
-
-function renderAccountUI(){
-  const accs=REG.accounts(), a=accs.find(x=>x.id===CURRENT_USER);
-  const name=a?a.name:'You';
-  const ini=initials(name);
-  $('sb-name').textContent=name;
-  $('sb-who').textContent=name;
-  $('sb-ava').textContent=ini;
-  $('tb-ava').textContent=ini;
+  authMode='signin'; renderAuthMode();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -874,8 +848,7 @@ function bootForUser(){
   renderSideScore();
   renderStatCards();
   document.querySelectorAll('.gap8').forEach(el=>{ el.style.gap='8px'; el.style.display='flex'; });
-  const cfg=cloudConfig();
-  if(cfg) cloudConnect();
+  // cloud sync is connected by signInUser() before this runs
 }
 
 function refreshCurrentPage(){
@@ -907,9 +880,17 @@ function greet(){
   if(h<21) return 'Good evening';
   return 'Good night';
 }
+function renderAccountUI(){
+  const name=(AUTH_USER&&(AUTH_USER.displayName||AUTH_USER.email))||'You';
+  const ini=initials(name);
+  if($('sb-name')) $('sb-name').textContent=name;
+  if($('sb-who')) $('sb-who').textContent=name;
+  if($('sb-ava')) $('sb-ava').textContent=ini;
+  if($('tb-ava')) $('tb-ava').textContent=ini;
+}
 function updateTopbar(){
-  const accs=REG.accounts(), a=accs.find(x=>x.id===CURRENT_USER);
-  const first=a?String(a.name).trim().split(/\s+/)[0]:'';
+  let first='';
+  if(AUTH_USER){ first = AUTH_USER.displayName ? AUTH_USER.displayName.trim().split(/\s+/)[0] : (AUTH_USER.email? AUTH_USER.email.split('@')[0] : ''); }
   $('tb-date').textContent=fmtMed(todayAEST());
   $('tb-greeting').textContent=greet()+(first?(', '+first):'');
 }
@@ -960,9 +941,7 @@ function renderStatCards(){
 // ═══════════════════════════════════════════════════════════════
 function openModal(id){
   if(id==='sync-modal'){
-    const cfg=cloudConfig();
-    if(cfg) $('fb-config').value=JSON.stringify(cfg,null,2);
-    setCloudStatus(cloudReady?'Connected — syncing in real time.':(cfg?'Config saved. Press Connect to go live.':'Local only — saved on this device.'), cloudReady?'ok':'');
+    setCloudStatus(cloudReady?'Cloud sync is on — syncing in real time across your devices.':'Connecting…', cloudReady?'ok':'');
   }
   $(id).classList.add('open');
 }
@@ -1106,12 +1085,12 @@ function exportData(){
     const k=localStorage.key(i);
     if(k && k.indexOf(pfx)===0) out[k.slice(pfx.length)]=localStorage.getItem(k);
   }
-  const accs=REG.accounts(), a=accs.find(x=>x.id===CURRENT_USER);
-  const payload={ app:'life-tracker', version:1, exported:new Date().toISOString(), account:a?a.name:'', data:out };
+  const who=(AUTH_USER&&(AUTH_USER.displayName||AUTH_USER.email))||'backup';
+  const payload={ app:'life-tracker', version:1, exported:new Date().toISOString(), account:who, data:out };
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
   const url=URL.createObjectURL(blob);
   const aEl=document.createElement('a');
-  aEl.href=url; aEl.download='life-tracker-'+(a?a.name.replace(/\s+/g,'_'):'backup')+'-'+todayAEST()+'.json';
+  aEl.href=url; aEl.download='life-tracker-'+who.replace(/[^a-z0-9]+/gi,'_')+'-'+todayAEST()+'.json';
   document.body.appendChild(aEl); aEl.click(); aEl.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
@@ -1136,15 +1115,12 @@ function importData(ev){
 }
 
 // ═══════════════════════════════════════════════════════════════
-// REAL-TIME CLOUD SYNC (Firebase, optional & fully guarded)
-//   Local app works 100% without this. When a user pastes a free
-//   Firebase web config and presses Connect, every device signed
-//   into the same account stays mirrored in real time.
+// REAL-TIME CLOUD SYNC (Firebase — always on, keyed to the signed-in account)
+//   Local app works offline (localStorage cache). Every write mirrors to
+//   the user's Firestore doc; every change streams back to all their devices.
 // ═══════════════════════════════════════════════════════════════
-let fbApp=null, fbDb=null, fbUnsub=null, cloudReady=false, cloudBusy=false;
+let fbApp=null, fbDb=null, fbUnsub=null, cloudReady=false, cloudBusy=false, _fbInit=null;
 
-function cloudConfig(){ try{ return JSON.parse(localStorage.getItem('jw_fbconfig')||'null'); }catch(e){ return null; } }
-function setCloudConfig(cfg){ localStorage.setItem('jw_fbconfig', JSON.stringify(cfg)); }
 function setCloudStatus(msg,cls){ const e=$('sync-status-box'); if(!e) return; e.textContent=msg; e.className='sync-status'+(cls?(' '+cls):''); }
 
 function loadScript(src){
@@ -1156,55 +1132,58 @@ function loadScript(src){
   });
 }
 
-function cloudSaveAndConnect(){
-  let cfg;
-  try{ cfg=JSON.parse($('fb-config').value); }
-  catch(e){ setCloudStatus('That config is not valid JSON — copy the whole { … } block from Firebase.','err'); return; }
-  if(!cfg||!cfg.projectId||!cfg.apiKey){ setCloudStatus('Config is missing apiKey / projectId.','err'); return; }
-  setCloudConfig(cfg);
-  cloudConnect();
-}
-
-async function cloudConnect(){
-  const cfg=cloudConfig();
-  if(!cfg){ return; }
-  if(cloudReady){ setCloudStatus('Already connected — syncing in real time.','ok'); return; }
-  setCloudStatus('Connecting…','');
-  try{
+// Load the Firebase compat SDK once and initialise the app (used by auth + db).
+function ensureFirebase(){
+  if(_fbInit) return _fbInit;
+  _fbInit=(async()=>{
     const base='https://www.gstatic.com/firebasejs/10.12.2/';
     await loadScript(base+'firebase-app-compat.js');
     await loadScript(base+'firebase-auth-compat.js');
     await loadScript(base+'firebase-firestore-compat.js');
-    if(!window.firebase){ throw new Error('firebase missing'); }
-    fbApp = window.firebase.apps && window.firebase.apps.length ? window.firebase.app() : window.firebase.initializeApp(cfg);
-    await window.firebase.auth().signInAnonymously();
-    fbDb = window.firebase.firestore();
+    if(!window.firebase) throw new Error('Firebase SDK failed to load');
+    fbApp = firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
+    try{ await firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(e){}
+  })();
+  return _fbInit;
+}
+
+// Each account's data lives in one document: users/{uid}
+function cloudDocRef(){ return fbDb.collection('users').doc(CURRENT_USER); }
+
+function applyCloudData(data){
+  if(!data) return;
+  cloudBusy=true;
+  const pfx=userPfx();
+  Object.keys(data).forEach(k=>{
+    if(k==='_u') return;
+    try{ localStorage.setItem(pfx+k, typeof data[k]==='string'?data[k]:JSON.stringify(data[k])); }catch(e){}
+  });
+  cloudBusy=false;
+}
+
+// Connect for the signed-in user: pull existing data first, then stream changes.
+async function cloudConnectForUser(){
+  try{
+    await ensureFirebase();
+    fbDb = firebase.firestore();
     cloudReady=true;
-    setCloudStatus('Connected — syncing in real time across your devices.','ok');
+    setCloudStatus('Cloud sync is on.','ok');
+    try{ const snap=await cloudDocRef().get(); if(snap.exists) applyCloudData(snap.data()); }catch(e){}
     cloudListen();
   }catch(e){
     cloudReady=false;
-    setCloudStatus('Could not connect. Check the config and that Anonymous auth + Firestore are enabled.','err');
+    setCloudStatus('Offline — changes are saved on this device and will sync when reconnected.','');
   }
 }
 
-function cloudDocRef(){ return fbDb.collection('lifetracker').doc(CURRENT_USER); }
-
 function cloudListen(){
   if(!cloudReady) return;
-  if(fbUnsub){ fbUnsub(); fbUnsub=null; }
+  if(fbUnsub){ try{fbUnsub();}catch(e){} fbUnsub=null; }
   fbUnsub = cloudDocRef().onSnapshot(snap=>{
     if(!snap.exists){ pushAllLocal(); return; }
-    const data=snap.data()||{};
-    cloudBusy=true;
-    const pfx=userPfx();
-    Object.keys(data).forEach(k=>{
-      if(k==='_u') return;
-      try{ localStorage.setItem(pfx+k, typeof data[k]==='string'?data[k]:JSON.stringify(data[k])); }catch(e){}
-    });
-    cloudBusy=false;
+    applyCloudData(snap.data());
     refreshCurrentPage(); loadSleep(currentSleepDate());
-  }, err=>{ setCloudStatus('Sync interrupted: '+(err&&err.code||'error'),'err'); });
+  }, err=>{ setCloudStatus('Sync interrupted: '+((err&&err.code)||'error')+' (still saving locally).','err'); });
 }
 
 function pushAllLocal(){
@@ -1214,27 +1193,27 @@ function pushAllLocal(){
     const k=localStorage.key(i);
     if(k && k.indexOf(pfx)===0){
       const v=localStorage.getItem(k);
-      if(v!=null && v.length<=900000) payload[k.slice(pfx.length)]=v; // skip very large values (e.g. photos) — Firestore 1MiB doc cap
+      if(v!=null && v.length<=900000) payload[k.slice(pfx.length)]=v; // skip huge values (e.g. photos) — Firestore 1MiB doc cap
     }
   }
   cloudDocRef().set(payload,{merge:true}).catch(()=>{});
 }
 
-// Called by S.set on every write — hoisted so it exists before S is used.
+// Called by S.set on every write.
 function cloudPush(k,v){
   if(!cloudReady||cloudBusy) return;
   try{
     const s=typeof v==='string'?v:JSON.stringify(v);
-    if(s.length>900000) return; // too large for a single Firestore field (photos handled locally)
+    if(s.length>900000) return; // too large for a single Firestore field (photos kept on-device)
     cloudDocRef().set({[k]:s,_u:Date.now()},{merge:true}).catch(()=>{});
   }catch(e){}
 }
 
+// Kept for the sidebar/backup UI; sign-out is handled by logout().
 function cloudDisconnect(){
-  if(fbUnsub){ fbUnsub(); fbUnsub=null; }
-  cloudReady=false; fbDb=null;
-  try{ if(window.firebase&&window.firebase.auth){ window.firebase.auth().signOut(); } }catch(e){}
-  setCloudStatus('Disconnected. This device is now local-only (config kept).','');
+  if(fbUnsub){ try{fbUnsub();}catch(e){} fbUnsub=null; }
+  cloudReady=false;
+  setCloudStatus('Paused on this device.','');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2133,20 +2112,16 @@ function printPage(){ window.print(); }
 // ═══════════════════════════════════════════════════════════════
 (function boot(){
   setupPWA();
-  renderLogin();
-  const sess=REG.session();
-  const accs=REG.accounts();
-  if(sess && accs.some(a=>a.id===sess)){
-    CURRENT_USER=sess;
-    document.body.classList.add('signed-in');
-    $('login-overlay').style.display='none';
-    bootForUser();
-  } else {
-    REG.setSession(null);
-    CURRENT_USER=null;
-    document.body.classList.remove('signed-in');
-    $('login-overlay').style.display='flex';
-  }
+  authMode='signin'; renderAuthMode();
+  $('login-overlay').style.display='flex';
+  ensureFirebase().then(()=>{
+    firebase.auth().onAuthStateChanged(function(user){
+      if(user){ signInUser(user); }
+      else { showLoggedOut(); }
+    });
+  }).catch(function(){
+    $('login-err').textContent='Could not reach Firebase. Check your internet connection and reload.';
+  });
 })();
 </script>
 </body>
