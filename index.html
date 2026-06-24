@@ -9,8 +9,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Life Tracker">
-<link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="icon-192.png">
+<!-- manifest + icon hrefs are generated at runtime by setupPWA() (no static files needed) -->
+<link rel="manifest">
+<link rel="apple-touch-icon">
 <title>Jason Wyles — Life Tracker</title>
 <style>
 :root{
@@ -51,6 +52,7 @@ textarea{resize:vertical;min-height:80px;}
 /* BUTTONS */
 .btn{background:var(--accent);color:#fff;border:none;border-radius:var(--rs);padding:8px 16px;cursor:pointer;font-size:.88rem;font-weight:600;white-space:nowrap;transition:opacity .15s;}
 .btn:hover{opacity:.85;}
+.btn:disabled{opacity:.55;cursor:not-allowed;}
 .btn-sm{padding:5px 10px;font-size:.78rem;}
 .btn-g{background:var(--accent2);color:#0f1117;}
 .btn-r{background:var(--accent3);}
@@ -138,7 +140,7 @@ h2{font-size:1.25rem;font-weight:700;}
 :root{--sb:248px;}
 #app-shell{display:none;}
 body.signed-in #app-shell{display:block;}
-#sidebar{position:fixed;top:0;left:0;width:var(--sb);height:100%;background:linear-gradient(180deg,#14182a,#11131f);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:18px 14px;z-index:300;overflow-y:auto;}
+#sidebar{position:fixed;top:0;left:0;width:var(--sb);height:100%;background:linear-gradient(180deg,#14182a,#11131f);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:18px 14px;padding-top:calc(18px + env(safe-area-inset-top));z-index:300;overflow-y:auto;}
 #sidebar::-webkit-scrollbar{width:0;}
 .sb-logo{margin-bottom:18px;padding:0 6px;}
 .sb-logo .nm{font-size:1.18rem;font-weight:800;color:#fff;letter-spacing:.01em;}
@@ -160,8 +162,12 @@ body.signed-in #app-shell{display:block;}
 .icon-btn{background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:5px 7px;cursor:pointer;font-size:.8rem;}
 .icon-btn:hover{border-color:var(--accent);color:var(--accent);}
 #content{margin-left:var(--sb);min-height:100vh;}
-#topbar{position:sticky;top:0;z-index:150;display:flex;align-items:center;gap:14px;padding:14px 20px;background:rgba(15,17,23,.82);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);}
-.hamburger{display:none;background:none;border:1px solid var(--border);color:var(--text);border-radius:9px;padding:6px 11px;font-size:1.05rem;cursor:pointer;}
+/* Safe-area insets: viewport-fit=cover means content sits UNDER the iPhone
+   notch/status bar unless we pad for it — without this the hamburger is
+   unreachable on iPhone. */
+#topbar{position:sticky;top:0;z-index:150;display:flex;align-items:center;gap:14px;padding:14px 20px;padding-top:calc(14px + env(safe-area-inset-top));padding-left:calc(20px + env(safe-area-inset-left));background:rgba(15,17,23,.82);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);}
+.hamburger{display:none;background:none;border:1px solid var(--border);color:var(--text);border-radius:9px;padding:8px 12px;min-width:44px;min-height:40px;font-size:1.15rem;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent;}
+button,.tab,.nb,.user-chip{touch-action:manipulation;}
 .tb-quote{font-size:.9rem;color:var(--muted);font-style:italic;flex:1;}
 .tb-right{display:flex;align-items:center;gap:12px;margin-left:auto;}
 .tb-date{text-align:right;}
@@ -250,9 +256,21 @@ body.signed-in #login-overlay{display:none;}
   #sidebar{transform:translateX(-100%);transition:transform .25s ease;box-shadow:0 0 50px rgba(0,0,0,.6);}
   body.nav-open #sidebar{transform:translateX(0);}
   #content{margin-left:0;}
-  .hamburger{display:inline-block;}
+  .hamburger{display:inline-flex;align-items:center;justify-content:center;}
   .tb-quote{display:none;}
+  /* iOS zooms the page when focusing inputs <16px — keep them >=16px on mobile. */
+  input,select,textarea{font-size:16px;}
+  /* Fatter, easier-to-grab range sliders for touch (was 4px tall). */
+  .mrow{gap:12px;}
+  .mrow input[type=range]{height:30px;}
+  .pct-inp{width:70px!important;height:38px;}
+  /* Bigger checkboxes for touch. */
+  .task-item input[type=checkbox]{width:22px;height:22px;}
+  .ritem input[type=checkbox]{width:20px;height:20px;}
 }
+/* Keep native range sliders (so per-metric accent-color works) but give them a
+   taller hit area everywhere for easier dragging on touch screens. */
+.mrow input[type=range]{height:20px;}
 </style>
 </head>
 <body>
@@ -263,20 +281,20 @@ body.signed-in #login-overlay{display:none;}
     <div class="lg">Life Tracker</div>
     <div class="lgs">Personal OS · Cloud</div>
     <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
-      <button class="btn btn-o" onclick="authGoogle()" style="justify-content:center">Continue with Google</button>
-      <button class="btn btn-o" onclick="authApple()" style="justify-content:center">Continue with Apple</button>
+      <button class="btn btn-o" id="btn-google" onclick="authGoogle()" style="justify-content:center">Continue with Google</button>
+      <button class="btn btn-o" id="btn-apple" onclick="authApple()" style="justify-content:center">Continue with Apple</button>
     </div>
     <div class="login-divider">or use email</div>
     <div class="login-field">
-      <label>Email</label>
-      <input id="login-email" type="email" autocomplete="email" placeholder="you@example.com" onkeydown="if(event.key==='Enter')authPrimary()">
+      <label for="login-email">Email</label>
+      <input id="login-email" type="email" autocomplete="email" maxlength="120" placeholder="you@example.com" onkeydown="if(event.key==='Enter')authPrimary()">
     </div>
     <div class="login-field" id="login-passwrap">
-      <label>Password</label>
-      <input id="login-pass" type="password" autocomplete="current-password" placeholder="••••••••" onkeydown="if(event.key==='Enter')authPrimary()">
+      <label for="login-pass">Password</label>
+      <input id="login-pass" type="password" autocomplete="current-password" maxlength="200" placeholder="••••••••" onkeydown="if(event.key==='Enter')authPrimary()">
     </div>
-    <div class="login-err" id="login-err"></div>
-    <div id="login-ok" style="color:var(--accent2);font-size:.8rem;margin-bottom:8px"></div>
+    <div class="login-err" id="login-err" role="alert" aria-live="assertive"></div>
+    <div id="login-ok" style="color:var(--accent2);font-size:.8rem;margin-bottom:8px" role="status" aria-live="polite"></div>
     <button class="btn" id="login-btn" style="width:100%" onclick="authPrimary()">Sign in</button>
     <div style="display:flex;justify-content:space-between;margin-top:12px">
       <button class="link-btn" id="auth-signup" onclick="authToggleSignup()">Create account</button>
@@ -333,15 +351,15 @@ body.signed-in #login-overlay{display:none;}
   <div class="sb-account">
     <div class="sb-ava" id="sb-ava">JW</div>
     <div class="who"><div class="n" id="sb-who">—</div><div class="s">Signed in</div></div>
-    <button class="icon-btn" title="Sync & backup" onclick="openModal('sync-modal')">☁️</button>
-    <button class="icon-btn" title="Sign out / switch" onclick="logout()">⎋</button>
+    <button class="icon-btn" title="Sync & backup" aria-label="Sync and backup" onclick="openModal('sync-modal')">☁️</button>
+    <button class="icon-btn" title="Sign out" aria-label="Sign out" onclick="logout()">⎋</button>
   </div>
 </aside>
 <div id="overlay-bg" onclick="toggleSidebar(false)"></div>
 
 <div id="content">
 <header id="topbar">
-  <button class="hamburger" onclick="toggleSidebar()">☰</button>
+  <button class="hamburger" aria-label="Toggle navigation" onclick="toggleSidebar()">☰</button>
   <div class="tb-quote">“Discipline today. Freedom tomorrow.”</div>
   <div class="tb-right">
     <div class="tb-date"><div class="d1" id="tb-date"></div><div class="d2" id="tb-greeting"></div></div>
@@ -368,7 +386,7 @@ body.signed-in #login-overlay{display:none;}
         <div class="ct">📋 Tasks — <span id="dash-hdr"></span></div>
         <div id="rollover-banner"></div>
         <div class="row mb12">
-          <input type="text" id="task-inp" placeholder="Add task…" onkeydown="if(event.key==='Enter')addTask()">
+          <input type="text" id="task-inp" maxlength="200" placeholder="Add task…" onkeydown="if(event.key==='Enter')addTask()">
           <button class="btn" onclick="addTask()">Add</button>
         </div>
         <div id="task-list"></div>
@@ -379,7 +397,7 @@ body.signed-in #login-overlay{display:none;}
       <div class="card">
         <div class="ct">🏆 Milestones & Achievements</div>
         <div class="row mb12">
-          <input type="text" id="ms-inp" placeholder="Add milestone or achievement…" onkeydown="if(event.key==='Enter')addMilestone()">
+          <input type="text" id="ms-inp" maxlength="200" placeholder="Add milestone or achievement…" onkeydown="if(event.key==='Enter')addMilestone()">
           <button class="btn btn-sm" onclick="addMilestone()">Add</button>
         </div>
         <div id="ms-list"></div>
@@ -484,19 +502,19 @@ body.signed-in #login-overlay{display:none;}
       <div class="sleep-group">
         <label>🌙 Sleep time</label>
         <div class="sleep-inputs">
-          <select id="sleep-h" onchange="computeSleep()"></select>
+          <select id="sleep-h" aria-label="Sleep hour" onchange="computeSleep()"></select>
           <span class="sleep-colon">:</span>
-          <select id="sleep-m" onchange="computeSleep()"></select>
-          <select id="sleep-ap" onchange="computeSleep()"><option>AM</option><option selected>PM</option></select>
+          <select id="sleep-m" aria-label="Sleep minute" onchange="computeSleep()"></select>
+          <select id="sleep-ap" aria-label="Sleep AM/PM" onchange="computeSleep()"><option>AM</option><option selected>PM</option></select>
         </div>
       </div>
       <div class="sleep-group">
         <label>☀️ Wake up time</label>
         <div class="sleep-inputs">
-          <select id="wake-h" onchange="computeSleep()"></select>
+          <select id="wake-h" aria-label="Wake hour" onchange="computeSleep()"></select>
           <span class="sleep-colon">:</span>
-          <select id="wake-m" onchange="computeSleep()"></select>
-          <select id="wake-ap" onchange="computeSleep()"><option selected>AM</option><option>PM</option></select>
+          <select id="wake-m" aria-label="Wake minute" onchange="computeSleep()"></select>
+          <select id="wake-ap" aria-label="Wake AM/PM" onchange="computeSleep()"><option selected>AM</option><option>PM</option></select>
         </div>
       </div>
       <div class="sleep-result">
@@ -621,7 +639,7 @@ body.signed-in #login-overlay{display:none;}
     <div class="ct">🏆 Goals</div>
     <div id="goals-list"></div>
     <div class="row mt12">
-      <input type="text" id="goal-inp" placeholder="Add a goal…" onkeydown="if(event.key==='Enter')addGoal()">
+      <input type="text" id="goal-inp" maxlength="200" placeholder="Add a goal…" onkeydown="if(event.key==='Enter')addGoal()">
       <button class="btn" onclick="addGoal()">Add</button>
     </div>
   </div>
@@ -639,7 +657,7 @@ body.signed-in #login-overlay{display:none;}
   <div class="card">
     <div class="ct">➕ Add Outcome</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
-      <div style="flex:2;min-width:150px"><label class="note-lbl">Outcome</label><input class="gi" id="g-title" placeholder="Outcome name…"></div>
+      <div style="flex:2;min-width:150px"><label class="note-lbl">Outcome</label><input class="gi" id="g-title" maxlength="200" placeholder="Outcome name…"></div>
       <div style="min-width:130px"><label class="note-lbl">Start Date</label><input type="date" class="gi" id="g-start"></div>
       <div style="min-width:90px"><label class="note-lbl">Days</label><input type="number" class="gi" id="g-days" placeholder="30" min="1"></div>
       <div style="min-width:100px"><label class="note-lbl">Priority</label>
@@ -699,14 +717,11 @@ let AUTH_USER = null;   // the signed-in Firebase user
 const $ = id => document.getElementById(id);
 const esc = s => { const d = document.createElement('div'); d.appendChild(document.createTextNode(String(s))); return d.innerHTML; };
 const flash = id => { const e=$(id); if(!e) return; e.style.display='inline'; setTimeout(()=>e.style.display='none',2000); };
+// Only allow image data URLs / https URLs as photo sources (blocks XSS via crafted backups).
+function safePhotoSrc(v){ const s=String(v||''); return (/^data:image\//i.test(s) || /^https:\/\//i.test(s)) ? s : ''; }
+// True while the user is actively editing a field — used to avoid clobbering input on realtime refresh.
+function isEditing(){ const a=document.activeElement; return !!a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName); }
 
-// ── Accounts registry (shared across all users on this device) ──
-const REG = {
-  accounts(){ try{ return JSON.parse(localStorage.getItem('jw_accounts')||'[]'); }catch(e){ return []; } },
-  save(a){ try{ localStorage.setItem('jw_accounts', JSON.stringify(a)); }catch(e){} },
-  session(){ return localStorage.getItem('jw_session')||''; },
-  setSession(id){ try{ if(id) localStorage.setItem('jw_session', id); else localStorage.removeItem('jw_session'); }catch(e){} }
-};
 let CURRENT_USER = null;   // = Firebase uid once signed in
 let CURRENT_PAGE = 'dashboard';
 function userPfx(){ return 'jwu_'+(CURRENT_USER||'guest')+'__'; }
@@ -725,7 +740,6 @@ function todayAEST(){
   return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
 }
 function addDays(ds,n){ const d=new Date(ds+'T12:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
-function subDays(ds,n){ return addDays(ds,-n); }
 function daysBetween(a,b){ return Math.round((new Date(b+'T12:00:00')-new Date(a+'T12:00:00'))/86400000); }
 function weekMon(ds){ const d=new Date(ds+'T12:00:00'),day=d.getDay(),diff=day===0?-6:1-day; d.setDate(d.getDate()+diff); return d.toISOString().slice(0,10); }
 function monthKey(){ return todayAEST().slice(0,7); }
@@ -734,10 +748,6 @@ function fmtMed(s){ return new Date(s+'T12:00:00').toLocaleDateString('en-AU',{d
 function fmtShort(s){ return new Date(s+'T12:00:00').toLocaleDateString('en-AU',{day:'numeric',month:'short'}); }
 function uid(){ return Date.now()+'_'+Math.random().toString(36).slice(2); }
 
-// ═══════════════════════════════════════════════════════════════
-// ACCOUNTS · SIGN-IN · PER-USER STORAGE
-// ═══════════════════════════════════════════════════════════════
-function hash(s){ let h=5381; for(let i=0;i<s.length;i++){ h=((h<<5)+h)+s.charCodeAt(i); h|=0; } return 'h'+(h>>>0).toString(36); }
 function initials(name){
   const parts=String(name||'').trim().split(/\s+/).filter(Boolean);
   if(!parts.length) return '?';
@@ -745,42 +755,44 @@ function initials(name){
   return (parts[0][0]+parts[parts.length-1][0]).toUpperCase();
 }
 
-// One-time migration: bring any legacy single-user data (jw2_*) into the first account created.
-function migrateLegacy(toUserId){
-  const dest='jwu_'+toUserId+'__';
-  let moved=0;
-  for(let i=0;i<localStorage.length;i++){
-    const k=localStorage.key(i);
-    if(k && k.indexOf('jw2_')===0){
-      const newKey=dest+k.slice(4);
-      if(localStorage.getItem(newKey)===null){ localStorage.setItem(newKey, localStorage.getItem(k)); moved++; }
-    }
-  }
-  return moved;
-}
-
 // ── Firebase auth UI handlers ──────────────────────────────────
 let authMode='signin'; // signin | signup | reset
-function renderAuthMode(){
+let _authBusy=false;
+function setAuthBusy(b){
+  _authBusy=b;
+  ['login-btn','btn-google','btn-apple','auth-signup','auth-reset'].forEach(id=>{ const e=$(id); if(e) e.disabled=b; });
+  const lb=$('login-btn'); if(!lb) return;
+  // Restore button labels WITHOUT clearing the error/success message.
+  if(b) lb.textContent='Please wait…'; else updateAuthLabels();
+}
+// Update button/field labels for the current auth mode (does NOT touch messages).
+function updateAuthLabels(){
   const pw=$('login-passwrap'); if(pw) pw.style.display = authMode==='reset'?'none':'block';
   $('login-btn').textContent = authMode==='signup'?'Create account':(authMode==='reset'?'Send reset link':'Sign in');
   $('auth-signup').textContent = authMode==='signup'?'← Back to sign in':'Create account';
   $('auth-reset').textContent = authMode==='reset'?'← Back to sign in':'Forgot password?';
-  $('login-err').textContent=''; $('login-ok').textContent='';
 }
+// Switch mode AND clear any stale messages (used when the user toggles modes).
+function renderAuthMode(){ updateAuthLabels(); $('login-err').textContent=''; $('login-ok').textContent=''; }
 function authToggleSignup(){ authMode = authMode==='signup'?'signin':'signup'; renderAuthMode(); }
 function authReset(){ authMode = authMode==='reset'?'signin':'reset'; renderAuthMode(); }
-async function authGoogle(){ try{ await ensureFirebase(); await firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider()); }catch(e){ $('login-err').textContent=friendlyAuth(e); } }
-async function authApple(){ try{ await ensureFirebase(); const p=new firebase.auth.OAuthProvider('apple.com'); p.addScope('email'); p.addScope('name'); await firebase.auth().signInWithPopup(p); }catch(e){ $('login-err').textContent=friendlyAuth(e); } }
+async function authGoogle(){ if(_authBusy) return; setAuthBusy(true); try{ await ensureFirebase(); await firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider()); }catch(e){ $('login-err').textContent=friendlyAuth(e); }finally{ setAuthBusy(false); } }
+async function authApple(){ if(_authBusy) return; setAuthBusy(true); try{ await ensureFirebase(); const p=new firebase.auth.OAuthProvider('apple.com'); p.addScope('email'); p.addScope('name'); await firebase.auth().signInWithPopup(p); }catch(e){ $('login-err').textContent=friendlyAuth(e); }finally{ setAuthBusy(false); } }
 async function authPrimary(){
+  if(_authBusy) return;
   const email=($('login-email').value||'').trim(), pass=$('login-pass').value;
   $('login-err').textContent=''; $('login-ok').textContent='';
+  // Client-side validation before hitting Firebase.
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ $('login-err').textContent='Enter a valid email address.'; return; }
+  if(authMode!=='reset' && (pass||'').length<6){ $('login-err').textContent='Password must be at least 6 characters.'; return; }
+  setAuthBusy(true);
   try{
     await ensureFirebase();
-    if(authMode==='reset'){ if(!email){ $('login-err').textContent='Enter your email first.'; return; } await firebase.auth().sendPasswordResetEmail(email); $('login-ok').textContent='Reset link sent — check your inbox.'; authMode='signin'; renderAuthMode(); }
+    if(authMode==='reset'){ await firebase.auth().sendPasswordResetEmail(email); authMode='signin'; updateAuthLabels(); $('login-ok').textContent='Reset link sent — check your inbox.'; }
     else if(authMode==='signup'){ await firebase.auth().createUserWithEmailAndPassword(email,pass); }
     else { await firebase.auth().signInWithEmailAndPassword(email,pass); }
   }catch(e){ $('login-err').textContent=friendlyAuth(e); }
+  finally{ setAuthBusy(false); }
 }
 function friendlyAuth(e){ const c=(e&&e.code)||'';
   if(c.includes('invalid-credential')||c.includes('wrong-password')||c.includes('user-not-found')) return 'Incorrect email or password.';
@@ -788,6 +800,9 @@ function friendlyAuth(e){ const c=(e&&e.code)||'';
   if(c.includes('weak-password')) return 'Password should be at least 6 characters.';
   if(c.includes('invalid-email')) return 'That email address looks invalid.';
   if(c.includes('popup-closed')||c.includes('cancelled-popup')) return 'Sign-in was cancelled.';
+  if(c.includes('popup-blocked')) return 'Your browser blocked the sign-in popup — allow popups and retry.';
+  if(c.includes('network-request-failed')) return 'Network error — check your connection and retry.';
+  if(c.includes('too-many-requests')) return 'Too many attempts — please wait a moment and try again.';
   if(c.includes('operation-not-allowed')) return "That sign-in method isn't enabled in Firebase yet.";
   if(c.includes('unauthorized-domain')) return 'This web address is not authorised in Firebase → Authentication → Settings → Authorized domains.';
   return (e&&e.message)||'Something went wrong.';
@@ -998,7 +1013,7 @@ function computeSleep(skipApply){
   const store={ sh:$('sleep-h').value, sm:$('sleep-m').value, sap:$('sleep-ap').value,
                 wh:$('wake-h').value,  wm:$('wake-m').value,  wap:$('wake-ap').value };
   const complete = store.sh!=='' && store.sm!=='' && store.wh!=='' && store.wm!=='';
-  if(complete) S.set('sleep_'+date, store); 
+  if(complete) S.set('sleep_'+date, store);
   const dur = complete ? sleepDuration(store) : null;
   if(dur==null){
     $('time-slept').textContent='—';
@@ -1068,10 +1083,10 @@ function setupPWA(){
     };
     const blob=new Blob([JSON.stringify(manifest)],{type:'application/manifest+json'});
     const url=URL.createObjectURL(blob);
-    if($('manifest-link')) $('manifest-link').href=url;
-    if($('apple-icon-link')) $('apple-icon-link').href=icon192;
+    const ml=document.querySelector('link[rel="manifest"]'); if(ml) ml.href=url;
+    const al=document.querySelector('link[rel="apple-touch-icon"]'); if(al) al.href=icon192;
     if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
-      navigator.serviceWorker.register('sw.js').catch(()=>{});
+      navigator.serviceWorker.register('sw.js').catch(()=>{ /* sw.js optional; ignore if absent */ });
     }
   }catch(e){ /* PWA is best-effort; never block the app */ }
 }
@@ -1101,8 +1116,9 @@ function importData(ev){
     try{
       const p=JSON.parse(e.target.result);
       const data=p.data||p;
+      if(!data || typeof data!=='object') throw new Error('bad');
       const pfx=userPfx();
-      Object.keys(data).forEach(k=>{ localStorage.setItem(pfx+k, data[k]); });
+      Object.keys(data).forEach(k=>{ if(typeof data[k]==='string') localStorage.setItem(pfx+k, data[k]); });
       ev.target.value='';
       closeModal('sync-modal');
       DD=todayAEST(); $('dash-date').value=DD; $('week-start').value=weekMon(DD);
@@ -1119,9 +1135,16 @@ function importData(ev){
 //   Local app works offline (localStorage cache). Every write mirrors to
 //   the user's Firestore doc; every change streams back to all their devices.
 // ═══════════════════════════════════════════════════════════════
-let fbApp=null, fbDb=null, fbUnsub=null, cloudReady=false, cloudBusy=false, _fbInit=null;
+let fbApp=null, fbDb=null, fbUnsub=null, cloudReady=false, cloudBusy=false, _fbInit=null, _pendingRefresh=false;
 
 function setCloudStatus(msg,cls){ const e=$('sync-status-box'); if(!e) return; e.textContent=msg; e.className='sync-status'+(cls?(' '+cls):''); }
+// Surface write failures instead of swallowing them — the usual cause of
+// "not syncing" is Firestore rules not being published (permission-denied).
+function noteSyncFail(err){
+  const code=(err&&err.code)||'';
+  if(code.includes('permission-denied')) setCloudStatus('Sync blocked — publish Firestore security rules (Console → Firestore → Rules).','bad');
+  else if(code) setCloudStatus('Cloud save failed: '+code+' (saved on this device).','bad');
+}
 
 function loadScript(src){
   return new Promise((res,rej)=>{
@@ -1140,6 +1163,7 @@ function ensureFirebase(){
     await loadScript(base+'firebase-app-compat.js');
     await loadScript(base+'firebase-auth-compat.js');
     await loadScript(base+'firebase-firestore-compat.js');
+    await loadScript(base+'firebase-storage-compat.js');
     if(!window.firebase) throw new Error('Firebase SDK failed to load');
     fbApp = firebase.apps.length ? firebase.app() : firebase.initializeApp(firebaseConfig);
     try{ await firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(e){}
@@ -1150,15 +1174,24 @@ function ensureFirebase(){
 // Each account's data lives in one document: users/{uid}
 function cloudDocRef(){ return fbDb.collection('users').doc(CURRENT_USER); }
 
+// Apply a cloud snapshot to local storage. Returns true ONLY if something
+// actually changed — this is what stops our own write-echoes from triggering
+// a disruptive re-render (which on mobile made sliders / % boxes / routine feel
+// "unresponsive" and could revert a checkbox mid-edit).
 function applyCloudData(data){
-  if(!data) return;
+  if(!data) return false;
   cloudBusy=true;
+  let changed=false;
   const pfx=userPfx();
   Object.keys(data).forEach(k=>{
     if(k==='_u') return;
-    try{ localStorage.setItem(pfx+k, typeof data[k]==='string'?data[k]:JSON.stringify(data[k])); }catch(e){}
+    const val = typeof data[k]==='string'?data[k]:JSON.stringify(data[k]);
+    if(localStorage.getItem(pfx+k)!==val){
+      try{ localStorage.setItem(pfx+k, val); changed=true; }catch(e){}
+    }
   });
   cloudBusy=false;
+  return changed;
 }
 
 // Connect for the signed-in user: pull existing data first, then stream changes.
@@ -1181,10 +1214,24 @@ function cloudListen(){
   if(fbUnsub){ try{fbUnsub();}catch(e){} fbUnsub=null; }
   fbUnsub = cloudDocRef().onSnapshot(snap=>{
     if(!snap.exists){ pushAllLocal(); return; }
-    applyCloudData(snap.data());
+    // hasPendingWrites === true means this snapshot reflects OUR own local write
+    // that the server hasn't acknowledged yet — the UI already shows it, so skip.
+    if(snap.metadata && snap.metadata.hasPendingWrites) return;
+    const changed = applyCloudData(snap.data());
+    if(!changed) return;                    // nothing new (e.g. our write echoing back) — don't re-render
+    if(isEditing()){ _pendingRefresh=true; return; }  // don't yank the UI while the user is typing/dragging
     refreshCurrentPage(); loadSleep(currentSleepDate());
-  }, err=>{ setCloudStatus('Sync interrupted: '+((err&&err.code)||'error')+' (still saving locally).','err'); });
+  }, err=>{
+    const code=(err&&err.code)||'';
+    if(code.includes('permission-denied')) setCloudStatus('Sync blocked — publish Firestore security rules (Console → Firestore → Rules).','bad');
+    else setCloudStatus('Sync interrupted: '+(code||'error')+' (still saving locally).','bad');
+  });
 }
+
+// When the user finishes editing, apply any realtime update that arrived meanwhile.
+document.addEventListener('focusout', ()=>{
+  setTimeout(()=>{ if(_pendingRefresh && !isEditing()){ _pendingRefresh=false; refreshCurrentPage(); loadSleep(currentSleepDate()); } }, 150);
+});
 
 function pushAllLocal(){
   if(!cloudReady) return;
@@ -1196,7 +1243,7 @@ function pushAllLocal(){
       if(v!=null && v.length<=900000) payload[k.slice(pfx.length)]=v; // skip huge values (e.g. photos) — Firestore 1MiB doc cap
     }
   }
-  cloudDocRef().set(payload,{merge:true}).catch(()=>{});
+  cloudDocRef().set(payload,{merge:true}).then(()=>{ if(cloudReady) setCloudStatus('Cloud sync is on.','ok'); }).catch(noteSyncFail);
 }
 
 // Called by S.set on every write.
@@ -1205,15 +1252,8 @@ function cloudPush(k,v){
   try{
     const s=typeof v==='string'?v:JSON.stringify(v);
     if(s.length>900000) return; // too large for a single Firestore field (photos kept on-device)
-    cloudDocRef().set({[k]:s,_u:Date.now()},{merge:true}).catch(()=>{});
+    cloudDocRef().set({[k]:s,_u:Date.now()},{merge:true}).catch(noteSyncFail);
   }catch(e){}
-}
-
-// Kept for the sidebar/backup UI; sign-out is handled by logout().
-function cloudDisconnect(){
-  if(fbUnsub){ try{fbUnsub();}catch(e){} fbUnsub=null; }
-  cloudReady=false;
-  setCloudStatus('Paused on this device.','');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1329,7 +1369,6 @@ function svgLine(containerId, labels, values, color){
   const W = el.offsetWidth || 400, H = el.offsetHeight || 220;
   const pad = {t:20,r:20,b:36,l:40};
   const w = W - pad.l - pad.r, h = H - pad.t - pad.b;
-  const valid = values.filter(v=>v!==null&&v!==undefined);
   const minV=0, maxV=100;
   const xStep = labels.length>1 ? w/(labels.length-1) : w;
 
@@ -1686,7 +1725,7 @@ function loadMetricSliders(){
   const date=$('metric-date').value||todayAEST(), data=S.get('metrics_'+date,{});
   $('metric-sliders').innerHTML=METRICS.map(m=>`<div class="mrow">
     <div class="mname">${m.label}</div>
-    <input type="range" min="1" max="10" value="${data[m.key]||5}" id="m-${m.key}"
+    <input type="range" min="1" max="10" value="${data[m.key]||5}" id="m-${m.key}" aria-label="${m.label} rating"
       oninput="$('mv-${m.key}').textContent=this.value" style="accent-color:${m.color}">
     <div class="mval" id="mv-${m.key}" style="color:${m.color}">${data[m.key]||5}</div>
   </div>`).join('');
@@ -1703,6 +1742,7 @@ function saveMetrics(){
 function renderMetricChart(){
   const from=$('m-from').value||addDays(todayAEST(),-6), to=$('m-to').value||todayAEST();
   const n=daysBetween(from,to)+1;
+  if(n<=0||n>370){ $('metric-chart-svg').innerHTML='<div class="tmu" style="padding:20px">Select a valid range (max ~1 year).</div>'; return; }
   const dates=Array.from({length:n},(_,i)=>addDays(from,i));
   const labels=dates.map(fmtShort);
   const datasets=METRICS.map(m=>({
@@ -1808,7 +1848,7 @@ function renderDayRoutine(date, container){
         return `<div class="ritem" data-time="${t}" data-idx="${i}">
           <span class="rgrip" title="Drag to fill" onpointerdown="routineFillStart(event,'${date}','${t}')">⠿</span>
           <span class="rtime">${t}</span>
-          <input class="rinp" id="rt-${date}-${t.replace(':','-')}" value="${esc(r.activity||'')}"
+          <input class="rinp" id="rt-${date}-${t.replace(':','-')}" value="${esc(r.activity||'')}" maxlength="120"
             placeholder="Activity…" onchange="updateRoutineSlot('${date}','${t}',this.value)">
           <input type="checkbox" ${r.done?'checked':''} style="accent-color:var(--accent2);width:15px;height:15px"
             onchange="toggleRoutineSlot('${date}','${t}',this.checked)" title="Done">
@@ -1899,9 +1939,10 @@ function loadVision(){
   const v=S.get('vision',{});
   $('v-vision').value=v.vision||''; $('v-mission').value=v.mission||'';
   renderGoals(v.goals||[]);
-  const photo=v.photo;
+  const photo=safePhotoSrc(v.photo);
   if(photo){
-    $('vis-photo-wrap').innerHTML=`<img src="${photo}" class="vis-hero" alt="Profile">`;
+    const img=document.createElement('img'); img.src=photo; img.className='vis-hero'; img.alt='Profile';
+    $('vis-photo-wrap').innerHTML=''; $('vis-photo-wrap').appendChild(img);
     $('vis-photo-del').style.display='inline-block';
   } else {
     $('vis-photo-wrap').innerHTML='<div class="tmu" style="padding:20px">No photo uploaded yet.</div>';
@@ -1913,17 +1954,34 @@ function saveVision(){
   v.vision=$('v-vision').value; v.mission=$('v-mission').value;
   S.set('vision',v); alert('Saved ✓');
 }
-function setVisPhoto(e){
+async function setVisPhoto(e){
   const f=e.target.files[0]; if(!f) return;
+  if(!/^image\//.test(f.type)){ alert('Please choose an image file.'); return; }
+  if(f.size>5*1024*1024){ alert('That image is larger than 5 MB. Please choose a smaller one.'); return; }
+  const wrap=$('vis-photo-wrap');
+  if(wrap) wrap.innerHTML='<div class="tmu" style="padding:20px">Uploading photo…</div>';
+  // Preferred path: Firebase Storage (free Spark tier) → small download URL that
+  // syncs across all devices via Firestore. Falls back to on-device data URL.
+  try{
+    if(CURRENT_USER){
+      await ensureFirebase();
+      const ref=firebase.storage().ref('users/'+CURRENT_USER+'/vision-photo');
+      await ref.put(f,{contentType:f.type});
+      const url=await ref.getDownloadURL();
+      const v=S.get('vision',{goals:[],photo:null}); v.photo=url; S.set('vision',v); loadVision();
+      return;
+    }
+  }catch(err){ /* Storage not enabled / offline → fall back to local */ }
   const r=new FileReader();
-  r.onload=ev=>{
-    const v=S.get('vision',{goals:[],photo:null}); v.photo=ev.target.result;
-    S.set('vision',v); loadVision();
-  };
+  r.onload=ev=>{ const v=S.get('vision',{goals:[],photo:null}); v.photo=ev.target.result; S.set('vision',v); loadVision(); };
   r.readAsDataURL(f);
 }
 function clearVisPhoto(){
-  const v=S.get('vision',{goals:[],photo:null}); v.photo=null; S.set('vision',v); loadVision();
+  const v=S.get('vision',{goals:[],photo:null});
+  const old=String(v.photo||'');
+  v.photo=null; S.set('vision',v); loadVision();
+  // Best-effort: delete the Storage object too (only if it was a Storage URL).
+  try{ if(CURRENT_USER && /^https:\/\//.test(old) && window.firebase && firebase.storage){ firebase.storage().ref('users/'+CURRENT_USER+'/vision-photo').delete().catch(()=>{}); } }catch(e){}
 }
 function addGoal(){
   const inp=$('goal-inp'),label=inp.value.trim(); if(!label) return;
@@ -2097,15 +2155,6 @@ function loadHistory(){
 // PRINT
 // ═══════════════════════════════════════════════════════════════
 function printPage(){ window.print(); }
-
-// ═══════════════════════════════════════════════════════════════
-// SYNC NOTE
-// ═══════════════════════════════════════════════════════════════
-// Each account's data lives in localStorage under a per-user prefix,
-// so multiple people can share one device. Use ☁️ Sync & backup to
-// either (a) export/import a JSON file between devices, or (b) paste a
-// free Firebase web config for automatic real-time sync across all of
-// your devices. The app is fully functional offline without either.
 
 // ═══════════════════════════════════════════════════════════════
 // BOOT
