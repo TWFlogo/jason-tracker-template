@@ -1,29 +1,35 @@
-// Service worker — makes the app installable and work offline.
-const CACHE = 'lifetracker-v1';
-const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
+// Minimal offline service worker for the Life Tracker single-file app.
+// Network-first with a cache fallback, so the app keeps loading offline
+// (data itself is already cached in localStorage and synced via Firestore).
+const CACHE = 'life-tracker-v1';
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).catch(() => {}));
   self.skipWaiting();
 });
+
 self.addEventListener('activate', (e) => {
-  e.waitUntil(caches.keys().then((keys) =>
-    Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))));
-  self.clients.claim();
+  e.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))),
+    ).then(() => self.clients.claim()),
+  );
 });
+
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
-  // Never cache Firebase / Google auth + database traffic — always hit the network.
-  if (/gstatic\.com|googleapis\.com|firebase|firestore|identitytoolkit/.test(req.url)) return;
   e.respondWith(
-    caches.match(req).then((cached) =>
-      cached ||
-      fetch(req).then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+    fetch(req)
+      .then((res) => {
+        // Cache same-origin successful responses for offline fallback.
+        try {
+          if (res && res.status === 200 && new URL(req.url).origin === self.location.origin) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+          }
+        } catch (_) {}
         return res;
-      }).catch(() => caches.match('./index.html'))
-    )
+      })
+      .catch(() => caches.match(req)),
   );
 });
